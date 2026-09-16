@@ -8,7 +8,7 @@ on:
       - "outbox/linkedin/*.json"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: linkedin-publisher
@@ -17,7 +17,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - name: Check out repository
         uses: actions/checkout@v5
@@ -26,25 +26,15 @@ jobs:
 
       - name: Publish newly added outbox entries
         env:
+          GITHUB_TOKEN: ${{ github.token }}
           SOCIAL_BRIDGE_KEY: ${{ secrets.SOCIAL_BRIDGE_KEY }}
           SOCIAL_BRIDGE_URL: https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
-          RUN_ATTEMPT: ${{ github.run_attempt }}
+          MODE: push
         shell: bash
         run: |
           set -euo pipefail
-
-          if [[ -z "${SOCIAL_BRIDGE_KEY:-}" ]]; then
-            echo "Missing GitHub Actions secret: SOCIAL_BRIDGE_KEY"
-            exit 1
-          fi
-
-          if [[ "$RUN_ATTEMPT" != "1" ]]; then
-            echo "Refusing to publish on workflow re-run to avoid accidental duplicate LinkedIn posts."
-            echo "Verify LinkedIn first, then create a new outbox entry if a retry is actually needed."
-            exit 1
-          fi
 
           zero_sha="0000000000000000000000000000000000000000"
 
@@ -59,34 +49,6 @@ jobs:
             exit 0
           fi
 
-          echo "Checking LinkedIn connection before publishing"
-          status_response=$(curl --fail-with-body --silent --show-error \
-            --url "$SOCIAL_BRIDGE_URL/linkedin/status" \
-            --header "Authorization: Bearer $SOCIAL_BRIDGE_KEY")
-          echo "$status_response" | jq -e '.ok == true and .connected == true' >/dev/null
-
           for file in "${files[@]}"; do
-            echo "Validating $file"
-
-            jq -e '
-              type == "object" and
-              (.publish == true) and
-              (.text | type == "string") and
-              ((.text | length) > 0) and
-              ((.text | length) <= 3000)
-            ' "$file" >/dev/null
-
-            payload=$(jq '{text: .text}' "$file")
-
-            echo "Publishing $file"
-            response=$(curl --fail-with-body --silent --show-error \
-              --request POST \
-              --url "$SOCIAL_BRIDGE_URL/linkedin/post" \
-              --header "Authorization: Bearer $SOCIAL_BRIDGE_KEY" \
-              --header "Content-Type: application/json" \
-              --data "$payload")
-
-            echo "$response" | jq -e '.ok == true' >/dev/null
-            post_id=$(echo "$response" | jq -r '.postId // "unknown"')
-            echo "Published successfully. postId=$post_id"
+            node scripts/publish-linkedin.mjs "$file"
           done
