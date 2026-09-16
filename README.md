@@ -2,7 +2,35 @@
 
 A lightweight bridge between AI agents and social platforms, starting with LinkedIn.
 
-The goal is simple: give trusted AI agents a small, controlled HTTP interface for publishing to social networks without giving them direct access to platform credentials.
+The goal is simple: give trusted AI agents a small, controlled path for publishing to social networks without giving them direct access to platform credentials.
+
+## Current flow
+
+Social Bridge can be called directly over HTTP, but ChatGPT does not always have a generic HTTP write tool available in a conversation. For this repo, GitHub can act as the final relay:
+
+```text
+ChatGPT / trusted agent
+        |
+        | creates an approved JSON file
+        v
+GitHub outbox
+outbox/linkedin/*.json
+        |
+        | push to main
+        v
+GitHub Actions
+        |
+        | SOCIAL_BRIDGE_KEY
+        v
+Social Bridge
+Firebase HTTPS Function
+        |
+        | LinkedIn token stays in Firebase
+        v
+LinkedIn REST API
+```
+
+The agent can therefore publish without receiving the LinkedIn password, LinkedIn access token, or Firebase secrets.
 
 ## V0
 
@@ -30,22 +58,38 @@ The publish route expects:
 }
 ```
 
-## Architecture
+## Agent outbox
 
-```text
-AI agent / trusted caller
-        |
-        v
-   Social Bridge
-  Firebase HTTPS
-        |
-        v
-  LinkedIn REST API
+A new JSON file committed to `outbox/linkedin/` on `main` triggers `.github/workflows/publish-linkedin.yml`.
+
+Example:
+
+```json
+{
+  "publish": true,
+  "text": "Hello LinkedIn"
+}
 ```
 
-The caller only needs the bridge URL and `SOCIAL_BRIDGE_KEY`. LinkedIn credentials stay in Firebase Secret Manager and are never exposed to the publishing caller.
+Only newly added `.json` files are published. Editing or deleting an existing outbox entry does not republish it.
 
-## Example
+The workflow validates the file, strips it down to the `text` payload, and sends it to Social Bridge. The bridge then publishes through LinkedIn using credentials stored in Firebase Secret Manager.
+
+This gives the repo a simple public audit trail: the exact text an agent asked to publish remains visible in git history.
+
+### GitHub Actions secret
+
+The repository needs one Actions secret:
+
+```text
+SOCIAL_BRIDGE_KEY
+```
+
+It must contain the same value as the Firebase Secret Manager secret `SOCIAL_BRIDGE_KEY`.
+
+No LinkedIn credential is stored in GitHub.
+
+## Direct HTTP example
 
 Set the deployed function URL and bridge key:
 
@@ -76,7 +120,7 @@ curl -X POST "$SOCIAL_BRIDGE_URL/linkedin/post" \
   -d '{"text":"Hello LinkedIn"}'
 ```
 
-## Secrets
+## Firebase secrets
 
 Create these Firebase secrets before deploying:
 
@@ -110,13 +154,14 @@ firebase deploy --only functions
 
 V0 intentionally has no UI, database, scheduler, analytics, or multi-user support.
 
-The first milestone is deliberately narrow: verify the LinkedIn connection and publish one text post reliably while keeping platform credentials isolated from the calling agent.
+The first milestone is deliberately narrow: let an AI agent publish an approved LinkedIn text post reliably while keeping platform credentials isolated from the agent.
 
 ## Roadmap
 
 - [x] LinkedIn OAuth
 - [x] LinkedIn connection status check
 - [x] LinkedIn text publishing
+- [x] GitHub Actions agent relay
 - [ ] Automatic token renewal
 - [ ] Media / image publishing
 - [ ] Scheduling
