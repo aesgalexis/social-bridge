@@ -1,4 +1,4 @@
-const LINKEDIN_API_VERSION = "202508";
+const LINKEDIN_API_VERSION = "202605";
 
 async function publishTextPost({ accessToken, authorUrn, text }) {
   const response = await fetch("https://api.linkedin.com/rest/posts", {
