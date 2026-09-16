@@ -1,7 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const crypto = require("node:crypto");
-const { publishTextPost } = require("./linkedin");
+const { publishTextPost, publishImagePost } = require("./linkedin");
 
 const BRIDGE_KEY = defineSecret("SOCIAL_BRIDGE_KEY");
 const LINKEDIN_ACCESS_TOKEN = defineSecret("LINKEDIN_ACCESS_TOKEN");
@@ -13,6 +13,13 @@ const LINKEDIN_REDIRECT_URI =
   "https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge/linkedin/callback";
 const LINKEDIN_SCOPES = "openid profile w_member_social";
 const LINKEDIN_MAX_TEXT_LENGTH = 3000;
+const LINKEDIN_MAX_ALT_TEXT_LENGTH = 4086;
+const BRIDGE_MAX_IMAGE_BYTES = 12 * 1024 * 1024;
+const SUPPORTED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif"
+]);
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 function authorized(req) {
@@ -91,6 +98,59 @@ async function getLinkedInUserInfo(accessToken) {
   }
 
   return payload;
+}
+
+function parseImagePayload(body) {
+  if (body?.image === undefined) return null;
+
+  const data = typeof body.image?.data === "string" ? body.image.data.trim() : "";
+  const contentType =
+    typeof body.image?.contentType === "string"
+      ? body.image.contentType.trim().toLowerCase()
+      : "";
+  const altText =
+    typeof body.image?.altText === "string" ? body.image.altText.trim() : "";
+
+  if (!data) {
+    return { error: "image_data_required" };
+  }
+
+  if (!SUPPORTED_IMAGE_TYPES.has(contentType)) {
+    return {
+      error: "unsupported_image_type",
+      supportedTypes: [...SUPPORTED_IMAGE_TYPES]
+    };
+  }
+
+  if (altText.length > LINKEDIN_MAX_ALT_TEXT_LENGTH) {
+    return {
+      error: "image_alt_text_too_long",
+      maxLength: LINKEDIN_MAX_ALT_TEXT_LENGTH
+    };
+  }
+
+  if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+    return { error: "invalid_image_base64" };
+  }
+
+  const imageBuffer = Buffer.from(data, "base64");
+
+  if (!imageBuffer.length) {
+    return { error: "invalid_image_base64" };
+  }
+
+  if (imageBuffer.length > BRIDGE_MAX_IMAGE_BYTES) {
+    return {
+      error: "image_too_large_for_bridge",
+      maxBytes: BRIDGE_MAX_IMAGE_BYTES
+    };
+  }
+
+  return {
+    imageBuffer,
+    contentType,
+    altText
+  };
 }
 
 exports.socialBridge = onRequest(
@@ -218,14 +278,28 @@ exports.socialBridge = onRequest(
         });
       }
 
+      const image = parseImagePayload(req.body);
+
+      if (image?.error) {
+        return res.status(400).json({ ok: false, ...image });
+      }
+
       try {
-        const result = await publishTextPost({
+        const common = {
           accessToken: LINKEDIN_ACCESS_TOKEN.value(),
           authorUrn: LINKEDIN_AUTHOR_URN.value(),
           text
-        });
+        };
 
-        return res.status(201).json({ ok: true, ...result });
+        const result = image
+          ? await publishImagePost({ ...common, ...image })
+          : await publishTextPost(common);
+
+        return res.status(201).json({
+          ok: true,
+          mediaType: image ? "image" : "text",
+          ...result
+        });
       } catch (error) {
         console.error(error);
         return res.status(502).json({ ok: false, error: "linkedin_publish_failed" });
