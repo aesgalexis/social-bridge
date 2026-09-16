@@ -12,6 +12,7 @@ const LINKEDIN_CLIENT_ID = "77ycnpkcgzoi5g";
 const LINKEDIN_REDIRECT_URI =
   "https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge/linkedin/callback";
 const LINKEDIN_SCOPES = "openid profile w_member_social";
+const LINKEDIN_MAX_TEXT_LENGTH = 3000;
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
 
 function authorized(req) {
@@ -207,6 +208,14 @@ exports.socialBridge = onRequest(
 
       if (!text) {
         return res.status(400).json({ ok: false, error: "text_required" });
+      }
+
+      if (text.length > LINKEDIN_MAX_TEXT_LENGTH) {
+        return res.status(400).json({
+          ok: false,
+          error: "text_too_long",
+          maxLength: LINKEDIN_MAX_TEXT_LENGTH
+        });
       }
 
       try {
