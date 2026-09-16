@@ -72,7 +72,8 @@ jobs:
               type == "object" and
               (.publish == true) and
               (.text | type == "string") and
-              ((.text | length) > 0)
+              ((.text | length) > 0) and
+              ((.text | length) <= 3000)
             ' "$file" >/dev/null
 
             payload=$(jq '{text: .text}' "$file")
