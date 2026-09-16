@@ -1,4 +1,4 @@
-name: Validate Functions
+name: Validate Social Bridge
 
 on:
   push:
@@ -6,10 +6,16 @@ on:
       - main
     paths:
       - "functions/**"
+      - "scripts/**"
+      - ".github/workflows/publish-linkedin.yml"
+      - ".github/workflows/schedule-linkedin.yml"
       - ".github/workflows/validate-functions.yml"
   pull_request:
     paths:
       - "functions/**"
+      - "scripts/**"
+      - ".github/workflows/publish-linkedin.yml"
+      - ".github/workflows/schedule-linkedin.yml"
       - ".github/workflows/validate-functions.yml"
 
 permissions:
@@ -29,6 +35,9 @@ jobs:
           node-version: 22
           package-manager-cache: false
 
-      - name: Validate JavaScript syntax
+      - name: Validate Functions syntax
         working-directory: functions
         run: npm run check
+
+      - name: Validate delivery runner syntax
+        run: node --check scripts/publish-linkedin.mjs
