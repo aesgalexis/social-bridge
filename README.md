@@ -36,6 +36,8 @@ LinkedIn REST API
 
 The agent can therefore publish without receiving the LinkedIn password, LinkedIn access token, or Firebase secrets.
 
+This flow has now been validated end to end with a real LinkedIn post published from a ChatGPT conversation after human approval.
+
 ## V0
 
 One Firebase HTTPS function with these routes:
@@ -143,7 +145,7 @@ The V0 OAuth flow uses `openid profile w_member_social`.
 
 Open `/linkedin/auth`, authorize the LinkedIn account, and LinkedIn redirects to `/linkedin/callback`. The callback currently returns the access token and member URN so they can be stored manually in Firebase Secret Manager.
 
-Token persistence and renewal are intentionally still manual in V0.
+Token persistence and renewal are intentionally still manual in V0. Once persistence is automated, the callback should stop returning the access token to the browser.
 
 ## Deploy
 
@@ -158,17 +160,29 @@ firebase deploy --only functions
 
 V0 intentionally has no UI, database, scheduler, analytics, or multi-user support.
 
-The first milestone is deliberately narrow: let an AI agent publish an approved LinkedIn text post reliably while keeping platform credentials isolated from the agent.
+The first milestone was deliberately narrow: let an AI agent publish an approved LinkedIn text post reliably while keeping platform credentials isolated from the agent. That milestone is complete.
 
 ## Roadmap
+
+### Completed
 
 - [x] LinkedIn OAuth
 - [x] LinkedIn connection status check
 - [x] LinkedIn text publishing
 - [x] GitHub Actions agent relay
-- [ ] Automatic token renewal
+- [x] First real LinkedIn post published end to end from ChatGPT after human approval
+
+### Next
+
+- [ ] Automatic LinkedIn token persistence / renewal
+- [ ] Remove access token from OAuth callback response once persistence is automatic
 - [ ] Media / image publishing
 - [ ] Scheduling
 - [ ] Additional social networks
+
+### Maintenance
+
+- [ ] Move Firebase Functions runtime from Node 20 to Node 22
+- [ ] Commit `package-lock.json` for reproducible installs and deployments
 
 The bridge should stay small. New capabilities belong here only when they are useful to agents and can be exposed through a simple, controlled interface.
