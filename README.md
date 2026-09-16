@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/social-bridge-logo.svg" alt="Social Bridge" width="180" />
-</p>
-
 # social-bridge
 
 A lightweight bridge between AI agents and social platforms, starting with LinkedIn.
