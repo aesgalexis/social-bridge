@@ -19,8 +19,13 @@ function authorized(req) {
   const token = header.startsWith("Bearer ") ? header.slice(7) : "";
   const expected = BRIDGE_KEY.value();
 
-  if (!token || token.length !== expected.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected));
+  if (!token || !expected) return false;
+
+  const tokenBuffer = Buffer.from(token);
+  const expectedBuffer = Buffer.from(expected);
+
+  if (tokenBuffer.length !== expectedBuffer.length) return false;
+  return crypto.timingSafeEqual(tokenBuffer, expectedBuffer);
 }
 
 function createOAuthState() {
