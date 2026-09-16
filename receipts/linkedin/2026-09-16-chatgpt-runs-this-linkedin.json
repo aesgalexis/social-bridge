@@ -1,0 +1,9 @@
+{
+  "state": "published",
+  "request": "outbox/linkedin/2026-09-16-chatgpt-runs-this-linkedin.json",
+  "sourceSha": "9e9833c830707e82090cd21476cf8e5ea8be5ead",
+  "claimedAt": "2026-09-16T15:29:25Z",
+  "publishedAt": "2026-09-16T15:29:26Z",
+  "postId": "urn:li:share:7506011371185025024",
+  "mediaType": "text"
+}
