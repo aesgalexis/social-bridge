@@ -157,7 +157,7 @@ Token persistence and renewal are intentionally still manual in V0. LinkedIn pro
 
 ## Deploy
 
-The Functions runtime is configured for Node.js 22.
+The Functions runtime is configured and deployed on Node.js 22. Dependency resolution is pinned with `functions/package-lock.json`.
 
 ```bash
 cd functions
@@ -182,13 +182,13 @@ The first milestone was deliberately narrow: let an AI agent publish an approved
 - [x] GitHub Actions agent relay
 - [x] First real LinkedIn post published end to end from ChatGPT after human approval
 - [x] Weekly LinkedIn connection health check
-- [x] Configure Firebase Functions for Node.js 22
+- [x] Configure and deploy Firebase Functions on Node.js 22
+- [x] Commit `package-lock.json` for reproducible installs and deployments
 - [x] Move publishing workflow to `actions/checkout@v5`
 - [x] Pre-publish connection check and duplicate-safe re-run guard
 
 ### Next
 
-- [ ] Commit `package-lock.json` and deploy the Node.js 22 runtime
 - [ ] Add durable delivery receipts/idempotency before scheduled publishing
 - [ ] Media / image publishing
 - [ ] Scheduling
