@@ -1,4 +1,5 @@
 const LINKEDIN_API_VERSION = "202605";
+const LINKEDIN_REQUEST_TIMEOUT_MS = 15000;
 
 async function publishTextPost({ accessToken, authorUrn, text }) {
   const response = await fetch("https://api.linkedin.com/rest/posts", {
@@ -20,7 +21,8 @@ async function publishTextPost({ accessToken, authorUrn, text }) {
       },
       lifecycleState: "PUBLISHED",
       isReshareDisabledByAuthor: false
-    })
+    }),
+    signal: AbortSignal.timeout(LINKEDIN_REQUEST_TIMEOUT_MS)
   });
 
   const body = await response.text();
