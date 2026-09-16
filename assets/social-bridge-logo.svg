@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Social Bridge</title>
+  <desc id="desc">A blue-to-purple bridge connecting an AI node with a people node.</desc>
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#18C7F4"/>
+      <stop offset="50%" stop-color="#0E6BFF"/>
+      <stop offset="100%" stop-color="#7A3CFF"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M146 208 C188 118 324 118 366 208" fill="none" stroke="url(#g)" stroke-width="20" stroke-linecap="round"/>
+  <circle cx="256" cy="118" r="24" fill="url(#g)"/>
+
+  <path d="M126 318 Q256 248 386 318" fill="none" stroke="url(#g)" stroke-width="24" stroke-linecap="round"/>
+  <path d="M178 306v64M229 287v83M283 287v83M334 306v64" stroke="url(#g)" stroke-width="18" stroke-linecap="round"/>
+
+  <rect x="91" y="356" width="74" height="28" rx="14" fill="url(#g)"/>
+  <rect x="347" y="356" width="74" height="28" rx="14" fill="url(#g)"/>
+  <path d="M128 278v82M384 278v82" stroke="url(#g)" stroke-width="24" stroke-linecap="round"/>
+
+  <circle cx="128" cy="244" r="72" fill="#12AEEF"/>
+  <circle cx="384" cy="244" r="72" fill="#6E3CF3"/>
+
+  <g fill="#fff">
+    <rect x="91" y="218" width="74" height="50" rx="18"/>
+    <circle cx="111" cy="243" r="7" fill="#12AEEF"/>
+    <circle cx="145" cy="243" r="7" fill="#12AEEF"/>
+    <rect x="84" y="231" width="9" height="26" rx="4.5"/>
+    <rect x="163" y="231" width="9" height="26" rx="4.5"/>
+    <rect x="124" y="201" width="8" height="19" rx="4"/>
+    <circle cx="128" cy="197" r="7"/>
+
+    <circle cx="384" cy="220" r="16"/>
+    <path d="M356 270c0-23 13-38 28-38s28 15 28 38z"/>
+    <circle cx="351" cy="229" r="11"/>
+    <path d="M333 268c0-17 8-28 18-28 8 0 15 7 17 17-5 5-8 11-10 18h-25z"/>
+    <circle cx="417" cy="229" r="11"/>
+    <path d="M409 257c2-10 9-17 17-17 10 0 18 11 18 28h-25c-2-7-5-13-10-18z"/>
+  </g>
+</svg>
