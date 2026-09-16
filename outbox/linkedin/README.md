@@ -2,11 +2,9 @@
 
 This directory is the publish queue used by ChatGPT through GitHub.
 
-A new `.json` file committed to this directory on `main` triggers the `Publish LinkedIn outbox` GitHub Actions workflow.
+A new `.json` file committed here on `main` triggers the `Publish LinkedIn outbox` workflow. Entries with a future `publishAt` are left pending until the scheduled workflow sees them due.
 
-Only newly added JSON files are published. Editing or deleting an existing file does not publish it again.
-
-## Format
+## Immediate text post
 
 ```json
 {
@@ -15,8 +13,43 @@ Only newly added JSON files are published. Editing or deleting an existing file 
 }
 ```
 
-`publish` must be exactly `true`, and `text` must be a non-empty string.
+## Scheduled post
 
-The workflow sends only the `text` field to Social Bridge. LinkedIn credentials never enter the repository or the AI agent context; the workflow authenticates to Social Bridge using the GitHub Actions secret `SOCIAL_BRIDGE_KEY`.
+Use an ISO-8601 timestamp with an explicit timezone or `Z`:
 
-Each published file remains in git history as a simple public audit trail of what the agent asked Social Bridge to publish.
+```json
+{
+  "publish": true,
+  "publishAt": "2026-09-18T09:30:00+02:00",
+  "text": "Post text goes here"
+}
+```
+
+The scheduler checks every 15 minutes. GitHub Actions schedules are best-effort, so `publishAt` means "not before this time", not exact-to-the-minute delivery.
+
+## Post with one image
+
+Store the image under `media/linkedin/` and reference it from the request:
+
+```json
+{
+  "publish": true,
+  "text": "Post text goes here",
+  "image": {
+    "path": "media/linkedin/example.png",
+    "altText": "Short accessible description of the image"
+  }
+}
+```
+
+JPG, PNG, and GIF are supported. Social Bridge currently limits the transported image to 12 MiB. `altText` is optional.
+
+Scheduling and images can be combined in the same entry.
+
+## Delivery receipts
+
+Before calling LinkedIn, the workflow writes a durable claim under `receipts/linkedin/`. After success it updates the receipt with the LinkedIn post ID.
+
+If a publish attempt becomes ambiguous, the receipt remains claimed or is marked `attention_required`. Automatic runs will not retry that request, avoiding accidental duplicate posts. A human should inspect LinkedIn before deciding whether to create a new request.
+
+Each outbox entry and delivery receipt remains in git history as a public audit trail. LinkedIn credentials never enter the repository or the AI agent context; workflows authenticate to Social Bridge through the GitHub Actions secret `SOCIAL_BRIDGE_KEY`.
