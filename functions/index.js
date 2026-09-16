@@ -162,6 +162,41 @@ exports.socialBridge = onRequest(
       return res.status(401).json({ ok: false, error: "unauthorized" });
     }
 
+    if (req.method === "GET" && req.path === "/linkedin/status") {
+      try {
+        const userInfo = await getLinkedInUserInfo(LINKEDIN_ACCESS_TOKEN.value());
+        const actualAuthorUrn = `urn:li:person:${userInfo.sub}`;
+        const configuredAuthorUrn = LINKEDIN_AUTHOR_URN.value();
+
+        if (actualAuthorUrn !== configuredAuthorUrn) {
+          return res.status(409).json({
+            ok: false,
+            connected: true,
+            error: "linkedin_author_mismatch",
+            actualAuthorUrn,
+            configuredAuthorUrn
+          });
+        }
+
+        return res.status(200).json({
+          ok: true,
+          connected: true,
+          authorUrn: configuredAuthorUrn,
+          member: {
+            sub: userInfo.sub,
+            name: userInfo.name || null
+          }
+        });
+      } catch (error) {
+        console.error(error);
+        return res.status(502).json({
+          ok: false,
+          connected: false,
+          error: "linkedin_status_failed"
+        });
+      }
+    }
+
     if (req.method === "POST" && req.path === "/linkedin/post") {
       const text = typeof req.body?.text === "string" ? req.body.text.trim() : "";
 
