@@ -79,6 +79,8 @@ Example:
 
 Only newly added `.json` files are published. Editing or deleting an existing outbox entry does not republish it.
 
+Before publishing, the workflow checks `/linkedin/status`. It also refuses workflow re-runs, because an ambiguous network failure after LinkedIn accepts a post could otherwise create a duplicate on retry. A real retry should only happen after checking LinkedIn and creating a new outbox entry.
+
 The workflow validates the file, strips it down to the `text` payload, and sends it to Social Bridge. The bridge then publishes through LinkedIn using credentials stored in Firebase Secret Manager.
 
 This gives the repo a simple public audit trail: the exact text an agent asked to publish remains visible in git history.
@@ -182,11 +184,12 @@ The first milestone was deliberately narrow: let an AI agent publish an approved
 - [x] Weekly LinkedIn connection health check
 - [x] Configure Firebase Functions for Node.js 22
 - [x] Move publishing workflow to `actions/checkout@v5`
+- [x] Pre-publish connection check and duplicate-safe re-run guard
 
 ### Next
 
 - [ ] Commit `package-lock.json` and deploy the Node.js 22 runtime
-- [ ] Add delivery idempotency before scheduled/retry-heavy publishing
+- [ ] Add durable delivery receipts/idempotency before scheduled publishing
 - [ ] Media / image publishing
 - [ ] Scheduling
 - [ ] Automate LinkedIn token persistence / renewal where LinkedIn app access allows it
