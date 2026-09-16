@@ -1,0 +1,77 @@
+name: Publish LinkedIn outbox
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "outbox/linkedin/*.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linkedin-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Publish newly added outbox entries
+        env:
+          SOCIAL_BRIDGE_KEY: ${{ secrets.SOCIAL_BRIDGE_KEY }}
+          SOCIAL_BRIDGE_URL: https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge
+          BEFORE_SHA: ${{ github.event.before }}
+          AFTER_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${SOCIAL_BRIDGE_KEY:-}" ]]; then
+            echo "Missing GitHub Actions secret: SOCIAL_BRIDGE_KEY"
+            exit 1
+          fi
+
+          zero_sha="0000000000000000000000000000000000000000"
+
+          if [[ "$BEFORE_SHA" == "$zero_sha" ]]; then
+            mapfile -t files < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$AFTER_SHA" -- 'outbox/linkedin/*.json')
+          else
+            mapfile -t files < <(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- 'outbox/linkedin/*.json')
+          fi
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No newly added LinkedIn outbox files. Nothing to publish."
+            exit 0
+          fi
+
+          for file in "${files[@]}"; do
+            echo "Validating $file"
+
+            jq -e '
+              type == "object" and
+              (.publish == true) and
+              (.text | type == "string") and
+              ((.text | length) > 0)
+            ' "$file" >/dev/null
+
+            payload=$(jq '{text: .text}' "$file")
+
+            echo "Publishing $file"
+            response=$(curl --fail-with-body --silent --show-error \
+              --request POST \
+              --url "$SOCIAL_BRIDGE_URL/linkedin/post" \
+              --header "Authorization: Bearer $SOCIAL_BRIDGE_KEY" \
+              --header "Content-Type: application/json" \
+              --data "$payload")
+
+            echo "$response" | jq -e '.ok == true' >/dev/null
+            post_id=$(echo "$response" | jq -r '.postId // "unknown"')
+            echo "Published successfully. postId=$post_id"
+          done
