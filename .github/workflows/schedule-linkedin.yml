@@ -1,0 +1,43 @@
+name: Publish scheduled LinkedIn outbox
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linkedin-publisher
+  cancel-in-progress: false
+
+jobs:
+  publish-due:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+
+      - name: Publish due scheduled entries
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SOCIAL_BRIDGE_KEY: ${{ secrets.SOCIAL_BRIDGE_KEY }}
+          SOCIAL_BRIDGE_URL: https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge
+          MODE: schedule
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          files=(outbox/linkedin/*.json)
+
+          if (( ${#files[@]} == 0 )); then
+            echo "No LinkedIn outbox entries found."
+            exit 0
+          fi
+
+          for file in "${files[@]}"; do
+            node scripts/publish-linkedin.mjs "$file"
+          done
