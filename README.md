@@ -95,6 +95,12 @@ It must contain the same value as the Firebase Secret Manager secret `SOCIAL_BRI
 
 No LinkedIn credential is stored in GitHub.
 
+## Connection monitoring
+
+`.github/workflows/linkedin-health.yml` checks the protected `/linkedin/status` route every Monday and can also be run manually from GitHub Actions.
+
+This catches an expired/revoked LinkedIn token or author mismatch before the next publication attempt.
+
 ## Direct HTTP example
 
 Set the deployed function URL and bridge key:
@@ -145,9 +151,11 @@ The V0 OAuth flow uses `openid profile w_member_social`.
 
 Open `/linkedin/auth`, authorize the LinkedIn account, and LinkedIn redirects to `/linkedin/callback`. The callback currently returns the access token and member URN so they can be stored manually in Firebase Secret Manager.
 
-Token persistence and renewal are intentionally still manual in V0. Once persistence is automated, the callback should stop returning the access token to the browser.
+Token persistence and renewal are intentionally still manual in V0. LinkedIn programmatic refresh tokens are only available to approved Marketing Developer Platform partners, so refresh-token automation depends on the app's LinkedIn access. Once persistence is automated, the callback should stop returning the access token to the browser.
 
 ## Deploy
+
+The Functions runtime is configured for Node.js 22.
 
 ```bash
 cd functions
@@ -171,18 +179,18 @@ The first milestone was deliberately narrow: let an AI agent publish an approved
 - [x] LinkedIn text publishing
 - [x] GitHub Actions agent relay
 - [x] First real LinkedIn post published end to end from ChatGPT after human approval
+- [x] Weekly LinkedIn connection health check
+- [x] Configure Firebase Functions for Node.js 22
+- [x] Move publishing workflow to `actions/checkout@v5`
 
 ### Next
 
-- [ ] Automatic LinkedIn token persistence / renewal
-- [ ] Remove access token from OAuth callback response once persistence is automatic
+- [ ] Commit `package-lock.json` and deploy the Node.js 22 runtime
+- [ ] Add delivery idempotency before scheduled/retry-heavy publishing
 - [ ] Media / image publishing
 - [ ] Scheduling
+- [ ] Automate LinkedIn token persistence / renewal where LinkedIn app access allows it
+- [ ] Remove access token from OAuth callback response once persistence is automatic
 - [ ] Additional social networks
-
-### Maintenance
-
-- [ ] Move Firebase Functions runtime from Node 20 to Node 22
-- [ ] Commit `package-lock.json` for reproducible installs and deployments
 
 The bridge should stay small. New capabilities belong here only when they are useful to agents and can be exposed through a simple, controlled interface.
