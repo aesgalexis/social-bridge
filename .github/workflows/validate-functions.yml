@@ -7,6 +7,8 @@ on:
     paths:
       - "functions/**"
       - "scripts/**"
+      - "outbox/linkedin/**"
+      - "media/linkedin/**"
       - ".github/workflows/publish-linkedin.yml"
       - ".github/workflows/schedule-linkedin.yml"
       - ".github/workflows/validate-functions.yml"
@@ -14,6 +16,8 @@ on:
     paths:
       - "functions/**"
       - "scripts/**"
+      - "outbox/linkedin/**"
+      - "media/linkedin/**"
       - ".github/workflows/publish-linkedin.yml"
       - ".github/workflows/schedule-linkedin.yml"
       - ".github/workflows/validate-functions.yml"
@@ -41,3 +45,9 @@ jobs:
 
       - name: Validate delivery runner syntax
         run: node --check scripts/publish-linkedin.mjs
+
+      - name: Validate outbox validator syntax
+        run: node --check scripts/validate-linkedin-outbox.mjs
+
+      - name: Validate LinkedIn outbox and referenced media
+        run: node scripts/validate-linkedin-outbox.mjs
