@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { assertValidLinkedInRequest } from "./lib/linkedin-request.mjs";
 
 const requestPath = process.argv[2];
 const mode = process.env.MODE || "push";
@@ -10,31 +11,13 @@ const bridgeUrl = process.env.SOCIAL_BRIDGE_URL;
 const branch = process.env.GITHUB_REF_NAME || "main";
 const sourceSha = process.env.GITHUB_SHA || null;
 
-const MAX_TEXT_LENGTH = 3000;
-const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
-const MAX_ALT_TEXT_LENGTH = 4086;
-const MAX_SCHEDULE_FUTURE_DAYS = 366;
-const MAX_SCHEDULE_PAST_DAYS = 30;
-const IMAGE_ROOT = path.resolve(process.cwd(), "media/linkedin");
-const ALLOWED_TOP_LEVEL_KEYS = new Set(["publish", "publishAt", "text", "image"]);
-const ALLOWED_IMAGE_KEYS = new Set(["path", "altText"]);
-const CONTENT_TYPES = new Map([
-  [".jpg", "image/jpeg"],
-  [".jpeg", "image/jpeg"],
-  [".png", "image/png"],
-  [".gif", "image/gif"]
-]);
-
 if (!requestPath) throw new Error("Usage: node scripts/publish-linkedin.mjs <request.json>");
+if (!["push", "schedule"].includes(mode)) throw new Error(`Unsupported MODE: ${mode}`);
 if (!repository || !githubToken) throw new Error("GitHub repository/token environment is missing");
 if (!bridgeKey || !bridgeUrl) throw new Error("Social Bridge environment is missing");
 
 function nowIso() {
   return new Date().toISOString();
-}
-
-function daysToMs(days) {
-  return days * 24 * 60 * 60 * 1000;
 }
 
 function encodeGitHubPath(value) {
@@ -92,113 +75,6 @@ async function writeReceipt(receiptPath, receipt, sha) {
   return payload.content.sha;
 }
 
-function validateRequest(request) {
-  if (!request || typeof request !== "object" || Array.isArray(request)) {
-    throw new Error("Outbox entry must be a JSON object");
-  }
-
-  for (const key of Object.keys(request)) {
-    if (!ALLOWED_TOP_LEVEL_KEYS.has(key)) {
-      throw new Error(`Unknown top-level key: ${key}`);
-    }
-  }
-
-  if (request.publish !== true) {
-    throw new Error("Outbox entry requires publish=true");
-  }
-
-  if (typeof request.text !== "string" || !request.text.trim()) {
-    throw new Error("Outbox entry requires non-empty text");
-  }
-
-  const text = request.text.trim();
-  if (text.length > MAX_TEXT_LENGTH) {
-    throw new Error(`LinkedIn text exceeds ${MAX_TEXT_LENGTH} characters`);
-  }
-
-  let publishAt = null;
-  if (request.publishAt !== undefined) {
-    if (typeof request.publishAt !== "string") {
-      throw new Error("publishAt must be an ISO-8601 string");
-    }
-
-    publishAt = new Date(request.publishAt);
-    if (Number.isNaN(publishAt.getTime())) {
-      throw new Error("publishAt is not a valid ISO-8601 date/time");
-    }
-    if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(request.publishAt)) {
-      throw new Error("publishAt must include an explicit timezone or Z");
-    }
-
-    const now = Date.now();
-    const ts = publishAt.getTime();
-    if (ts < now - daysToMs(MAX_SCHEDULE_PAST_DAYS)) {
-      throw new Error(`publishAt is more than ${MAX_SCHEDULE_PAST_DAYS} days in the past`);
-    }
-    if (ts > now + daysToMs(MAX_SCHEDULE_FUTURE_DAYS)) {
-      throw new Error(`publishAt is more than ${MAX_SCHEDULE_FUTURE_DAYS} days in the future`);
-    }
-  }
-
-  let image = null;
-  if (request.image !== undefined) {
-    if (!request.image || typeof request.image !== "object" || Array.isArray(request.image)) {
-      throw new Error("image must be an object");
-    }
-
-    for (const key of Object.keys(request.image)) {
-      if (!ALLOWED_IMAGE_KEYS.has(key)) {
-        throw new Error(`Unknown image key: ${key}`);
-      }
-    }
-
-    if (typeof request.image.path !== "string" || !request.image.path.trim()) {
-      throw new Error("image.path is required");
-    }
-
-    const relativePath = request.image.path.replaceAll("\\", "/");
-    const absolutePath = path.resolve(process.cwd(), relativePath);
-
-    if (!absolutePath.startsWith(`${IMAGE_ROOT}${path.sep}`)) {
-      throw new Error("image.path must stay under media/linkedin/");
-    }
-
-    if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
-      throw new Error(`Image file not found: ${relativePath}`);
-    }
-
-    const extension = path.extname(absolutePath).toLowerCase();
-    const contentType = CONTENT_TYPES.get(extension);
-    if (!contentType) {
-      throw new Error("Image must be JPG, PNG, or GIF");
-    }
-
-    const size = fs.statSync(absolutePath).size;
-    if (size > MAX_IMAGE_BYTES) {
-      throw new Error(`Image exceeds Social Bridge ${MAX_IMAGE_BYTES}-byte transport limit`);
-    }
-
-    const altText = typeof request.image.altText === "string"
-      ? request.image.altText.trim()
-      : "";
-
-    if (
-      request.image.altText !== undefined &&
-      typeof request.image.altText !== "string"
-    ) {
-      throw new Error("image.altText must be a string when provided");
-    }
-
-    if (altText.length > MAX_ALT_TEXT_LENGTH) {
-      throw new Error(`Image alt text exceeds ${MAX_ALT_TEXT_LENGTH} characters`);
-    }
-
-    image = { absolutePath, relativePath, contentType, altText };
-  }
-
-  return { text, publishAt, image };
-}
-
 function shouldRun(publishAt) {
   if (mode === "schedule") {
     if (!publishAt) return false;
@@ -250,7 +126,7 @@ async function publishToBridge({ text, image }) {
 }
 
 const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
-const validated = validateRequest(request);
+const validated = assertValidLinkedInRequest(request, { mode });
 
 if (!shouldRun(validated.publishAt)) {
   if (validated.publishAt) {
