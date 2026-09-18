@@ -195,6 +195,7 @@ Social Bridge intentionally has no dashboard, analytics, or multi-user applicati
 - [x] Durable delivery receipts / at-most-once automatic delivery
 - [x] Single-image publishing
 - [x] Scheduled publishing with ISO-8601 `publishAt`
+- [x] Strict outbox/media validation with shared CI-tested guardrails
 
 ### Next
 
