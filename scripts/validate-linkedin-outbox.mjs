@@ -6,7 +6,15 @@ const IMAGE_ROOT = path.resolve(process.cwd(), "media/linkedin");
 const MAX_TEXT_LENGTH = 3000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_ALT_TEXT_LENGTH = 4086;
+const MAX_SCHEDULE_FUTURE_DAYS = 366;
+const MAX_SCHEDULE_PAST_DAYS = 30;
 const CONTENT_TYPES = new Set([".jpg", ".jpeg", ".png", ".gif"]);
+const ALLOWED_TOP_LEVEL_KEYS = new Set(["publish", "publishAt", "text", "image"]);
+const ALLOWED_IMAGE_KEYS = new Set(["path", "altText"]);
+
+function daysToMs(days) {
+  return days * 24 * 60 * 60 * 1000;
+}
 
 function validateEntry(filePath) {
   const errors = [];
@@ -20,6 +28,12 @@ function validateEntry(filePath) {
 
   if (!request || typeof request !== "object" || Array.isArray(request)) {
     return ["entry must be a JSON object"];
+  }
+
+  for (const key of Object.keys(request)) {
+    if (!ALLOWED_TOP_LEVEL_KEYS.has(key)) {
+      errors.push(`unknown top-level key: ${key}`);
+    }
   }
 
   if (request.publish !== true) {
@@ -41,6 +55,19 @@ function validateEntry(filePath) {
         errors.push("publishAt is not a valid ISO-8601 date/time");
       } else if (!/[zZ]|[+-]\d{2}:\d{2}$/.test(request.publishAt)) {
         errors.push("publishAt must include an explicit timezone or Z");
+      } else {
+        const now = Date.now();
+        const ts = publishAt.getTime();
+        if (ts < now - daysToMs(MAX_SCHEDULE_PAST_DAYS)) {
+          errors.push(
+            `publishAt is more than ${MAX_SCHEDULE_PAST_DAYS} days in the past`
+          );
+        }
+        if (ts > now + daysToMs(MAX_SCHEDULE_FUTURE_DAYS)) {
+          errors.push(
+            `publishAt is more than ${MAX_SCHEDULE_FUTURE_DAYS} days in the future`
+          );
+        }
       }
     }
   }
@@ -49,6 +76,12 @@ function validateEntry(filePath) {
     if (!request.image || typeof request.image !== "object" || Array.isArray(request.image)) {
       errors.push("image must be an object");
       return errors;
+    }
+
+    for (const key of Object.keys(request.image)) {
+      if (!ALLOWED_IMAGE_KEYS.has(key)) {
+        errors.push(`unknown image key: ${key}`);
+      }
     }
 
     if (typeof request.image.path !== "string" || !request.image.path.trim()) {
