@@ -49,5 +49,8 @@ jobs:
       - name: Validate outbox validator syntax
         run: node --check scripts/validate-linkedin-outbox.mjs
 
+      - name: Run LinkedIn request validation tests
+        run: node --test scripts/linkedin-request.test.mjs
+
       - name: Validate LinkedIn outbox and referenced media
         run: node scripts/validate-linkedin-outbox.mjs
