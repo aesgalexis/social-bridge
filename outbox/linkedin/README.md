@@ -27,7 +27,7 @@ Use an ISO-8601 timestamp with an explicit timezone or `Z`:
 
 The scheduler checks every 15 minutes. GitHub Actions schedules are best-effort, so `publishAt` means "not before this time", not exact-to-the-minute delivery.
 
-As a guardrail, `publishAt` is rejected if it is more than 30 days in the past or more than 366 days in the future.
+For newly added entries handled by the push workflow, `publishAt` is rejected if it is more than 30 days in the past or more than 366 days in the future. Scheduled scans do not re-apply that relative-age window, so durable historical entries do not become invalid merely because time passes.
 
 ## Post with one image
 
@@ -51,6 +51,8 @@ Scheduling and images can be combined in the same entry.
 ## Validation rules
 
 Requests are strict on purpose. Unknown keys are rejected both in the outbox entry and inside the optional `image` object. This catches typos such as `publsihAt`, `img`, or `alttext` before anything is published.
+
+Referenced images must stay physically inside `media/linkedin/`; symlink escapes are rejected. The same request validator is used by CI and by the publisher, with automated tests covering the guardrails.
 
 ## Delivery receipts
 
