@@ -1,6 +1,9 @@
 {
-  "state": "claimed",
+  "state": "published",
   "request": "outbox/linkedin/2026-10-14-old-machines.json",
   "sourceSha": "5b978544c42a2d5167d7f93a24f5426fd0545dea",
-  "claimedAt": "2026-10-14T14:32:02.729Z"
+  "claimedAt": "2026-10-14T14:32:02.729Z",
+  "publishedAt": "2026-10-14T14:32:05.821Z",
+  "postId": "urn:li:share:7516143800654700545",
+  "mediaType": "text"
 }
