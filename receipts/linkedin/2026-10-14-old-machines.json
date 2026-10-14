@@ -1,0 +1,6 @@
+{
+  "state": "claimed",
+  "request": "outbox/linkedin/2026-10-14-old-machines.json",
+  "sourceSha": "5b978544c42a2d5167d7f93a24f5426fd0545dea",
+  "claimedAt": "2026-10-14T14:32:02.729Z"
+}
