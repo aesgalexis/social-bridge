@@ -24,6 +24,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOCIAL_BRIDGE_KEY: ${{ secrets.SOCIAL_BRIDGE_KEY }}
+          LINKEDIN_OUTBOX_PRIVATE_KEY: ${{ secrets.LINKEDIN_OUTBOX_PRIVATE_KEY }}
           SOCIAL_BRIDGE_URL: https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge
           MODE: schedule
         shell: bash
@@ -31,7 +32,7 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          files=(outbox/linkedin/*.json)
+          files=(outbox/linkedin/*.sealed.json)
 
           if (( ${#files[@]} == 0 )); then
             echo "No LinkedIn outbox entries found."

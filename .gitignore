@@ -3,3 +3,6 @@ node_modules/
 firebase-debug.log*
 .env*
 .DS_Store
+drafts/
+outbox/linkedin/*.json
+!outbox/linkedin/*.sealed.json

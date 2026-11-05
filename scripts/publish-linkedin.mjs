@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { assertValidLinkedInRequest } from "./lib/linkedin-request.mjs";
+import { openSealedRequest } from "./lib/sealed-outbox.mjs";
 
 const requestPath = process.argv[2];
 const mode = process.env.MODE || "push";
@@ -101,7 +102,7 @@ async function publishToBridge({ text, image }) {
 
   if (image) {
     payload.image = {
-      data: fs.readFileSync(image.absolutePath).toString("base64"),
+      data: image.data,
       contentType: image.contentType,
       ...(image.altText ? { altText: image.altText } : {})
     };
@@ -125,8 +126,12 @@ async function publishToBridge({ text, image }) {
   return result;
 }
 
-const request = JSON.parse(fs.readFileSync(requestPath, "utf8"));
-const validated = assertValidLinkedInRequest(request, { mode });
+if (!requestPath.endsWith(".sealed.json")) {
+  throw new Error("Refusing to publish a plaintext outbox request");
+}
+const sealedEnvelope = JSON.parse(fs.readFileSync(requestPath, "utf8"));
+const request = openSealedRequest(sealedEnvelope, process.env.LINKEDIN_OUTBOX_PRIVATE_KEY);
+const validated = assertValidLinkedInRequest(request, { mode, sealed: true });
 
 if (!shouldRun(validated.publishAt)) {
   if (validated.publishAt) {
@@ -137,7 +142,7 @@ if (!shouldRun(validated.publishAt)) {
   process.exit(0);
 }
 
-const deliveryName = path.basename(requestPath, ".json");
+const deliveryName = path.basename(requestPath, ".sealed.json");
 const receiptPath = `receipts/linkedin/${deliveryName}.json`;
 const existing = await readReceipt(receiptPath);
 
