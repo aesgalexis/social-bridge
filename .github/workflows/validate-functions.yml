@@ -43,6 +43,9 @@ jobs:
         working-directory: functions
         run: npm run check
 
+      - name: Validate sealing scripts syntax
+        run: node --check scripts/seal-linkedin-outbox.mjs && node --check scripts/lib/sealed-outbox.mjs
+
       - name: Validate delivery runner syntax
         run: node --check scripts/publish-linkedin.mjs
 
@@ -51,6 +54,9 @@ jobs:
 
       - name: Run LinkedIn request validation tests
         run: node --test scripts/linkedin-request.test.mjs
+
+      - name: Run encrypted outbox tests
+        run: node --test scripts/sealed-outbox.test.mjs
 
       - name: Validate LinkedIn outbox and referenced media
         run: node scripts/validate-linkedin-outbox.mjs
