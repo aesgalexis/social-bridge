@@ -38,30 +38,88 @@ function authorized(req) {
 
 function createOAuthState() {
   const timestamp = Date.now().toString();
+  const nonce = crypto.randomBytes(16).toString("hex");
+  const message = `${timestamp}.${nonce}`;
   const signature = crypto
     .createHmac("sha256", BRIDGE_KEY.value())
-    .update(timestamp)
+    .update(message)
     .digest("hex");
 
-  return `${timestamp}.${signature}`;
+  return `${message}.${signature}`;
 }
 
 function validOAuthState(state) {
   if (typeof state !== "string") return false;
 
-  const [timestamp, signature] = state.split(".");
-  if (!timestamp || !signature) return false;
+  const parts = state.split(".");
+  if (parts.length !== 3) return false;
+  const [timestamp, nonce, signature] = parts;
+  if (!/^\d{13}$/.test(timestamp) || !/^[a-f0-9]{32}$/.test(nonce) || !/^[a-f0-9]{64}$/.test(signature)) return false;
 
   const age = Date.now() - Number(timestamp);
   if (!Number.isFinite(age) || age < 0 || age > STATE_MAX_AGE_MS) return false;
 
   const expected = crypto
     .createHmac("sha256", BRIDGE_KEY.value())
-    .update(timestamp)
+    .update(`${timestamp}.${nonce}`)
     .digest("hex");
 
   if (signature.length !== expected.length) return false;
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+
+
+const GOOGLE_CLOUD_PROJECT = process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || "social-bridge-7d433";
+
+// Uses the Cloud Run service identity, never browser-supplied credentials.
+async function googleServiceToken() {
+  const response = await fetch(
+    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
+    { headers: { "Metadata-Flavor": "Google" }, signal: AbortSignal.timeout(5000) }
+  );
+  if (!response.ok) throw new Error(`GCP identity unavailable (${response.status})`);
+  const payload = await response.json();
+  if (typeof payload.access_token !== "string") throw new Error("Missing GCP identity token");
+  return payload.access_token;
+}
+
+async function secretManagerRequest(method, secretName, suffix, body) {
+  const accessToken = await googleServiceToken();
+  const url = `https://secretmanager.googleapis.com/v1/projects/${GOOGLE_CLOUD_PROJECT}/secrets/${secretName}${suffix}`;
+  const response = await fetch(url, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) throw new Error(`Secret Manager ${method} ${secretName} failed (${response.status})`);
+  return response.json();
+}
+
+async function readSecretLatest(secretName) {
+  const payload = await secretManagerRequest("GET", secretName, "/versions/latest:access");
+  if (typeof payload.payload?.data !== "string") throw new Error("Secret Manager returned empty secret");
+  return Buffer.from(payload.payload.data, "base64").toString("utf8");
+}
+
+async function addSecretVersion(secretName, value) {
+  return secretManagerRequest("POST", secretName, ":addVersion", {
+    payload: { data: Buffer.from(value, "utf8").toString("base64") }
+  });
+}
+
+async function readLinkedInConnection() {
+  const [accessToken, authorUrn] = await Promise.all([
+    readSecretLatest("LINKEDIN_ACCESS_TOKEN"),
+    readSecretLatest("LINKEDIN_AUTHOR_URN")
+  ]);
+  if (!accessToken || !/^urn:li:person:[a-zA-Z0-9_-]+$/.test(authorUrn)) {
+    throw new Error("LinkedIn credentials not configured");
+  }
+  return { accessToken, authorUrn };
 }
 
 async function exchangeLinkedInCode(code) {
@@ -168,7 +226,14 @@ exports.socialBridge = onRequest(
       return res.status(200).json({ ok: true });
     }
 
-    if (req.method === "GET" && req.path === "/linkedin/auth") {
+    if (req.path === "/linkedin/auth") {
+      res.set("Cache-Control", "no-store");
+      if (req.method !== "POST") {
+        return res.status(405).json({ ok: false, error: "method_not_allowed" });
+      }
+      if (!authorized(req)) {
+        return res.status(401).json({ ok: false, error: "unauthorized" });
+      }
       const params = new URLSearchParams({
         response_type: "code",
         client_id: LINKEDIN_CLIENT_ID,
@@ -176,12 +241,16 @@ exports.socialBridge = onRequest(
         state: createOAuthState(),
         scope: LINKEDIN_SCOPES
       });
-
-      return res.redirect(`https://www.linkedin.com/oauth/v2/authorization?${params}`);
+      return res.status(200).json({
+        ok: true,
+        authorizationUrl: `https://www.linkedin.com/oauth/v2/authorization?${params}`
+      });
     }
 
     if (req.method === "GET" && req.path === "/linkedin/callback") {
       res.set("Cache-Control", "no-store");
+      res.set("Referrer-Policy", "no-referrer");
+      res.set("X-Content-Type-Options", "nosniff");
 
       if (req.query.error) {
         return res.status(400).json({
@@ -202,21 +271,16 @@ exports.socialBridge = onRequest(
         const token = await exchangeLinkedInCode(code);
         const userInfo = await getLinkedInUserInfo(token.access_token);
         const authorUrn = `urn:li:person:${userInfo.sub}`;
+        // Save server-side before responding; never expose tokens or authorization codes.
+        // Update author first so a partially failed rotation fails closed.
+        await addSecretVersion("LINKEDIN_AUTHOR_URN", authorUrn);
+        await addSecretVersion("LINKEDIN_ACCESS_TOKEN", token.access_token);
 
         return res.status(200).json({
           ok: true,
-          accessToken: token.access_token,
-          expiresIn: token.expires_in || null,
-          authorUrn,
-          member: {
-            sub: userInfo.sub,
-            name: userInfo.name || null
-          },
-          next: [
-            "Set the access token as LINKEDIN_ACCESS_TOKEN in Firebase Secret Manager.",
-            "Set authorUrn as LINKEDIN_AUTHOR_URN in Firebase Secret Manager.",
-            "Redeploy the function."
-          ]
+          connected: true,
+          message: "LinkedIn credentials saved server-side.",
+          member: { name: userInfo.name || null }
         });
       } catch (error) {
         console.error(error);
@@ -230,9 +294,10 @@ exports.socialBridge = onRequest(
 
     if (req.method === "GET" && req.path === "/linkedin/status") {
       try {
-        const userInfo = await getLinkedInUserInfo(LINKEDIN_ACCESS_TOKEN.value());
+        const connection = await readLinkedInConnection();
+        const userInfo = await getLinkedInUserInfo(connection.accessToken);
         const actualAuthorUrn = `urn:li:person:${userInfo.sub}`;
-        const configuredAuthorUrn = LINKEDIN_AUTHOR_URN.value();
+        const configuredAuthorUrn = connection.authorUrn;
 
         if (actualAuthorUrn !== configuredAuthorUrn) {
           return res.status(409).json({
@@ -285,9 +350,14 @@ exports.socialBridge = onRequest(
       }
 
       try {
+        const connection = await readLinkedInConnection();
+        const userInfo = await getLinkedInUserInfo(connection.accessToken);
+        if (`urn:li:person:${userInfo.sub}` !== connection.authorUrn) {
+          return res.status(409).json({ ok: false, error: "linkedin_author_mismatch" });
+        }
         const common = {
-          accessToken: LINKEDIN_ACCESS_TOKEN.value(),
-          authorUrn: LINKEDIN_AUTHOR_URN.value(),
+          accessToken: connection.accessToken,
+          authorUrn: connection.authorUrn,
           text
         };
 
