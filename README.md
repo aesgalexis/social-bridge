@@ -22,12 +22,9 @@ Only the encrypted post request is published in Git. The text, future scheduling
 
 ## First-time activation
 
-The maintainer must finish two one-time setup tasks before merging and deploying this change:
+Before merging and deploying, configure the matching `LINKEDIN_OUTBOX_PRIVATE_KEY` Actions secret, the separate Firebase OAuth admin key, and the permissions for token renewal and replay protection.
 
-1. Configure the GitHub Actions secret `LINKEDIN_OUTBOX_PRIVATE_KEY` with the private key matching `config/outbox-public.pem`. The Actions runner refuses to decrypt without it.
-2. Grant the deployed Firebase function service account Secret Manager `roles/secretmanager.secretVersionAdder` on the existing `LINKEDIN_ACCESS_TOKEN` and `LINKEDIN_AUTHOR_URN` secrets, then deploy the updated Firebase function. Status and publishing now read the latest secret versions from Google Cloud at request time.
-
-See **[SECURITY.md](SECURITY.md)** for the exact commands, key handling, deployment and migration caveats. This branch intentionally fails closed if its required secrets and IAM access are absent.
+See [SECURITY.md](SECURITY.md) for setup, deployment and migration details.
 
 ## Authoring an approved post
 
@@ -74,8 +71,9 @@ Receipt metadata contains no post text or credential. Previous unencrypted outbo
 ## Firebase API
 
 - `GET /health` — public liveness
-- `POST /linkedin/auth` — **requires** `Authorization: Bearer <SOCIAL_BRIDGE_KEY>`; returns a short-lived authorization URL, not an access token
-- `GET /linkedin/callback` — LinkedIn redirect; persists new credentials server-side, never returns them
+- `GET /linkedin/auth` — opens the admin sign-in form
+- `POST /linkedin/auth` — starts OAuth from that form with the separate admin key
+- `GET /linkedin/callback` — LinkedIn redirect, accepts a matching browser session once and renews the token server-side
 - `GET /linkedin/status` — requires bridge key; validates current connected author
 - `POST /linkedin/post` — requires bridge key; publishes text or one image
 
@@ -88,14 +86,7 @@ curl -X POST "$SOCIAL_BRIDGE_URL/linkedin/post" \
   -d '{"text":"Hello LinkedIn"}'
 ```
 
-OAuth initiation (after deploying and granting the required Secret Manager IAM permissions):
-
-```bash
-curl -sS -X POST "$SOCIAL_BRIDGE_URL/linkedin/auth" \
-  -H "Authorization: Bearer $SOCIAL_BRIDGE_KEY"
-```
-
-Open the returned `authorizationUrl` in a browser within ten minutes. The callback shows only a connection result, not the token. `GET /linkedin/auth` is disabled.
+For reauthorization, open `$SOCIAL_BRIDGE_URL/linkedin/auth` in a browser, enter the OAuth admin key and complete LinkedIn authorization in the same browser within ten minutes.
 
 ## Deploy and tests
 
@@ -104,12 +95,12 @@ cd functions
 npm ci
 npm run check
 cd ..
-node --test scripts/linkedin-request.test.mjs scripts/sealed-outbox.test.mjs
+node --test scripts/linkedin-oauth.test.cjs scripts/linkedin-request.test.mjs scripts/sealed-outbox.test.mjs
 node scripts/validate-linkedin-outbox.mjs
 firebase deploy --only functions
 ```
 
-The Firebase project is configured in `.firebaserc` (`social-bridge-7d433`). Secret names already used by the function: `SOCIAL_BRIDGE_KEY`, `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_AUTHOR_URN`, and `LINKEDIN_CLIENT_SECRET`.
+The Firebase project is configured in `.firebaserc` (`social-bridge-7d433`). Secret names already used by the function: `SOCIAL_BRIDGE_KEY`, `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_AUTHOR_URN`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_OAUTH_ADMIN_KEY`.
 
 ## Scope
 

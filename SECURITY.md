@@ -14,36 +14,45 @@ If the original private key is unavailable, create a new RSA-3072 keypair on you
 
 Draft posts should live in `drafts/` (ignored); referenced images must remain local. Never commit them directly to public `media/linkedin/`.
 
-## 2. Grant Google Cloud permissions for LinkedIn OAuth
+## 2. Configure administrative OAuth
 
-Previously the callback returned `accessToken` in the browser for manual Secret Manager setup. It now saves credentials server-side by adding secret versions and shows only a status message. The execution service account needs permission to add versions to **both** existing secrets.
+The browser flow uses a separate `LINKEDIN_OAUTH_ADMIN_KEY`. Generate a high-entropy value on a trusted machine and store it in Google Secret Manager. Share access to this secret only with operators who may reauthorize LinkedIn. GitHub Actions and publishing agents do not need it.
 
 ```bash
 PROJECT=social-bridge-7d433
-SA=$(gcloud functions describe socialBridge --gen2 --region=europe-west1 --project="$PROJECT" --format="value(serviceConfig.serviceAccountEmail)")
-for SECRET in LINKEDIN_ACCESS_TOKEN LINKEDIN_AUTHOR_URN; do
-  gcloud secrets add-iam-policy-binding "$SECRET" --project="$PROJECT" \
-    --member="serviceAccount:$SA" --role="roles/secretmanager.secretVersionAdder"
-done
+REGION=europe-west1
+BUCKET="$PROJECT-oauth-replay"
+SA=$(gcloud functions describe socialBridge --gen2 --region="$REGION" --project="$PROJECT" --format="value(serviceConfig.serviceAccountEmail)")
+
+openssl rand -hex 32 | tr -d '\n' | gcloud secrets create LINKEDIN_OAUTH_ADMIN_KEY --project="$PROJECT" --data-file=-
+gcloud secrets add-iam-policy-binding LINKEDIN_OAUTH_ADMIN_KEY --project="$PROJECT" \
+  --member="serviceAccount:$SA" --role="roles/secretmanager.secretAccessor"
+gcloud secrets add-iam-policy-binding LINKEDIN_ACCESS_TOKEN --project="$PROJECT" \
+  --member="serviceAccount:$SA" --role="roles/secretmanager.secretVersionAdder"
+
+gcloud storage buckets create "gs://$BUCKET" --project="$PROJECT" --location="$REGION" \
+  --uniform-bucket-level-access --public-access-prevention --soft-delete-duration=0s
+gcloud storage buckets add-iam-policy-binding "gs://$BUCKET" \
+  --member="serviceAccount:$SA" --role="roles/storage.objectCreator"
+LIFECYCLE=$(mktemp)
+printf '%s\n' '{"rule":[{"action":{"type":"Delete"},"condition":{"age":1}}]}' > "$LIFECYCLE"
+gcloud storage buckets update "gs://$BUCKET" --lifecycle-file="$LIFECYCLE"
+rm "$LIFECYCLE"
 ```
 
-The service account must also retain Secret Manager **Secret Accessor** on both secrets. Existing Firebase `defineSecret` bindings remain in the function. The function now reads the **latest** versions for posting/status rather than depending on a stale secret injected at startup.
+The service account must retain Secret Manager access to the existing secrets. `LINKEDIN_AUTHOR_URN` identifies the only account that may reauthorize. To deliberately change accounts, an administrator must update that secret separately. The function adds versions only to `LINKEDIN_ACCESS_TOKEN`. Publishing and status read the latest versions at request time.
+
+The private bucket holds short-lived replay markers. It stores no tokens, authorization codes, cookies or post content. The function creates each marker once with a generation precondition and rejects the callback if the state has already been consumed or the bucket is unavailable.
 
 Deploy:
 
 ```bash
 cd functions && npm ci && npm run check && cd ..
-firebase deploy --only functions
+node --test scripts/linkedin-oauth.test.cjs
+firebase deploy --only functions:socialBridge --project "$PROJECT"
 ```
 
-For reauthorization, run this on your trusted computer (without putting the bridge key in a URL):
-
-```bash
-curl -sS -X POST "$SOCIAL_BRIDGE_URL/linkedin/auth" \
-  -H "Authorization: Bearer $SOCIAL_BRIDGE_KEY"
-```
-
-Open the returned `authorizationUrl` in a browser within 10 minutes. Successful callback responses contain NO access token. If Secret Manager IAM is missing, the callback fails without displaying a token. LinkedIn may still require periodic interactive reauthorization because token refresh availability varies by LinkedIn partner approval.
+Open `$SOCIAL_BRIDGE_URL/linkedin/auth` in a browser. Retrieve the admin key from Secret Manager on a trusted machine and enter it in the form. Complete authorization in that browser within ten minutes. The callback accepts a state only with its matching session cookie and returns a connection result. LinkedIn may require periodic interactive reauthorization.
 
 ## 3. Historical exposure and caveats
 
@@ -51,4 +60,4 @@ Open the returned `authorizationUrl` in a browser within 10 minutes. Successful 
 - If any unpublished draft was ever committed publicly, treat it as disclosed. If a credential was ever exposed anywhere, rotate/revoke it. These changes do not rotate credentials automatically.
 - CI validates sealed envelope structure but deliberately does **not** decrypt with a private key. Outbox encryption prevents casual disclosure, not deletion from history or protection against a compromised CI runner or malicious person with repository admin access.
 - Safeguard the `main` branch with review rules and restrict write permissions. A contributor with Git write access can still choose to expose a plaintext draft in another path, despite the intended workflow.
-- Until both the GitHub private key and the Google Cloud secret IAM permissions are configured, the changed workflows may fail closed. Verify `/linkedin/status` and perform one controlled post after rollout.
+- After rollout, verify `/linkedin/status` and reauthorize from the browser. Use an approved post for an end-to-end publication check.
