@@ -1,19 +1,20 @@
 import fs from "node:fs";
 import path from "node:path";
-import { validateLinkedInRequest } from "./lib/linkedin-request.mjs";
+import { validateSealedEnvelope } from "./lib/sealed-outbox.mjs";
 
 const OUTBOX_ROOT = path.resolve(process.cwd(), "outbox/linkedin");
 
 function validateEntry(filePath) {
-  let request;
-
-  try {
-    request = JSON.parse(fs.readFileSync(filePath, "utf8"));
-  } catch (error) {
-    return [`invalid JSON: ${error.message}`];
+  if (!filePath.endsWith(".sealed.json")) {
+    return ["plaintext outbox entries are forbidden; use scripts/seal-linkedin-outbox.mjs"];
   }
-
-  return validateLinkedInRequest(request, { mode: "repository" }).errors;
+  try {
+    const envelope = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    validateSealedEnvelope(envelope);
+    return [];
+  } catch (error) {
+    return [error.message];
+  }
 }
 
 if (!fs.existsSync(OUTBOX_ROOT)) {

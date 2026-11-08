@@ -5,7 +5,7 @@ on:
     branches:
       - main
     paths:
-      - "outbox/linkedin/*.json"
+      - "outbox/linkedin/*.sealed.json"
 
 permissions:
   contents: write
@@ -28,6 +28,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           SOCIAL_BRIDGE_KEY: ${{ secrets.SOCIAL_BRIDGE_KEY }}
+          LINKEDIN_OUTBOX_PRIVATE_KEY: ${{ secrets.LINKEDIN_OUTBOX_PRIVATE_KEY }}
           SOCIAL_BRIDGE_URL: https://europe-west1-social-bridge-7d433.cloudfunctions.net/socialBridge
           BEFORE_SHA: ${{ github.event.before }}
           AFTER_SHA: ${{ github.sha }}
@@ -39,7 +40,7 @@ jobs:
           zero_sha="0000000000000000000000000000000000000000"
 
           if [[ "$BEFORE_SHA" == "$zero_sha" ]]; then
-            mapfile -t files < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$AFTER_SHA" -- 'outbox/linkedin/*.json')
+            mapfile -t files < <(git diff-tree --no-commit-id --name-only --diff-filter=A -r "$AFTER_SHA" -- 'outbox/linkedin/*.sealed.json')
           else
             mapfile -t files < <(git diff --name-only --diff-filter=A "$BEFORE_SHA" "$AFTER_SHA" -- 'outbox/linkedin/*.json')
           fi

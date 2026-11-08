@@ -9,6 +9,8 @@ export const MAX_SCHEDULE_PAST_DAYS = 30;
 
 const ALLOWED_TOP_LEVEL_KEYS = new Set(["publish", "publishAt", "text", "image"]);
 const ALLOWED_IMAGE_KEYS = new Set(["path", "altText"]);
+const ALLOWED_SEALED_IMAGE_KEYS = new Set(["data", "contentType", "altText"]);
+const SEALED_CONTENT_TYPES = new Set(["image/jpeg", "image/png", "image/gif"]);
 const CONTENT_TYPES = new Map([
   [".jpg", "image/jpeg"],
   [".jpeg", "image/jpeg"],
@@ -69,7 +71,8 @@ export function validateLinkedInRequest(
     mode = "repository",
     nowMs = Date.now(),
     cwd = process.cwd(),
-    requireImageFile = true
+    requireImageFile = true,
+    sealed = false
   } = {}
 ) {
   const errors = [];
@@ -134,12 +137,35 @@ export function validateLinkedInRequest(
       errors.push("image must be an object");
     } else {
       for (const key of Object.keys(request.image)) {
-        if (!ALLOWED_IMAGE_KEYS.has(key)) {
+        if (!(sealed ? ALLOWED_SEALED_IMAGE_KEYS : ALLOWED_IMAGE_KEYS).has(key)) {
           errors.push(`unknown image key: ${key}`);
         }
       }
 
-      if (typeof request.image.path !== "string" || !request.image.path.trim()) {
+      if (sealed) {
+        const data = request.image.data;
+        const contentType = request.image.contentType;
+        if (
+          typeof data !== "string" ||
+          !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data) ||
+          !data.length
+        ) {
+          errors.push("image.data must be canonical base64");
+        } else if (data.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 4) {
+          errors.push("image.data exceeds transport limit");
+        } else {
+          const bytes = Buffer.from(data, "base64");
+          if (bytes.length === 0 || bytes.length > MAX_IMAGE_BYTES || bytes.toString("base64") !== data) {
+            errors.push("image.data is invalid base64 or exceeds transport limit");
+          } else {
+            image = { data };
+          }
+        }
+        if (!SEALED_CONTENT_TYPES.has(contentType)) {
+          errors.push("image.contentType must be JPEG, PNG or GIF");
+        }
+        if (image) image.contentType = contentType;
+      } else if (typeof request.image.path !== "string" || !request.image.path.trim()) {
         errors.push("image.path is required");
       } else if (requireImageFile) {
         const resolved = resolveImage({

@@ -4,139 +4,80 @@
 
 # social-bridge
 
-A lightweight bridge between AI agents and social platforms, starting with LinkedIn.
+A small bridge between AI agents and social networks, initially LinkedIn. Agents can request approved posts without receiving LinkedIn credentials or GitHub Actions secrets.
 
-The goal is simple: give trusted AI agents a small, controlled path for publishing to social networks without giving them direct access to platform credentials.
-
-## Current flow
+## Secure publishing architecture
 
 ```text
-ChatGPT / trusted agent
-        |
-        | creates an approved JSON request
-        v
-GitHub outbox
-outbox/linkedin/*.json
-        |
-        | immediate push or scheduled scan
-        v
-GitHub Actions
-        |
-        | durable claim / receipt in git
-        v
-Social Bridge
-Firebase HTTPS Function
-        |
-        | LinkedIn token stays in Firebase
-        v
-LinkedIn REST API
+Approved local draft (never committed)
+  -> scripts/seal-linkedin-outbox.mjs + public encryption key
+  -> outbox/linkedin/*.sealed.json (public GitHub repo, encrypted)
+  -> GitHub Actions (private decryption key)
+  -> delivery claim / receipt in Git
+  -> Firebase HTTPS Function (bridge key)
+  -> LinkedIn REST API (access token held in Google Secret Manager)
 ```
 
-The agent can publish without receiving the LinkedIn password, LinkedIn access token, or Firebase secrets. The flow has been validated end to end with a real LinkedIn post published from a ChatGPT conversation after human approval.
+Only the encrypted post request is published in Git. The text, future scheduling time, and any image bytes are hidden inside authenticated ciphertext. The public key can be shared with AI agents, but **the private key must never be committed or given to an agent**.
 
-## Capabilities
+## First-time activation
 
-Social Bridge currently supports:
+Before merging and deploying, configure the matching `LINKEDIN_OUTBOX_PRIVATE_KEY` Actions secret, the separate Firebase OAuth admin key, and the permissions for token renewal and replay protection.
 
-- LinkedIn OAuth and connection validation
-- text posts
-- single-image posts using LinkedIn's Images API
-- immediate publishing from the GitHub outbox
-- scheduled publishing through GitHub Actions
-- durable delivery receipts to prevent automatic duplicate retries
-- weekly LinkedIn connection health checks
+See [SECURITY.md](SECURITY.md) for setup, deployment and migration details.
 
-The Firebase function exposes:
+## Authoring an approved post
 
-- `GET /health`
-- `GET /linkedin/auth`
-- `GET /linkedin/callback`
-- `GET /linkedin/status`
-- `POST /linkedin/post`
-
-`GET /linkedin/status` and `POST /linkedin/post` require:
-
-```text
-Authorization: Bearer <SOCIAL_BRIDGE_KEY>
-```
-
-## Agent outbox
-
-A new JSON file committed to `outbox/linkedin/` on `main` triggers `.github/workflows/publish-linkedin.yml`.
-
-Immediate text post:
+Create a local `drafts/post.json` (the entire `drafts/` directory is ignored by Git):
 
 ```json
 {
   "publish": true,
-  "text": "Hello LinkedIn"
+  "publishAt": "2026-11-10T09:30:00+01:00",
+  "text": "Hello LinkedIn!"
 }
 ```
 
-Scheduled post:
+Optional image:
 
 ```json
 {
   "publish": true,
-  "publishAt": "2026-09-18T09:30:00+02:00",
-  "text": "Hello later"
-}
-```
-
-Image post:
-
-```json
-{
-  "publish": true,
-  "text": "Hello with an image",
+  "text": "Text with an image",
   "image": {
-    "path": "media/linkedin/example.png",
-    "altText": "Accessible description"
+    "path": "media/linkedin/local-picture.png",
+    "altText": "A descriptive alt text"
   }
 }
 ```
 
-Scheduling and images can be combined. The scheduler scans every 15 minutes, so `publishAt` is treated as "not before" rather than exact-to-the-minute delivery.
-
-See `outbox/linkedin/README.md` for the full request format.
-
-## Durable delivery receipts
-
-Before calling LinkedIn, `scripts/publish-linkedin.mjs` creates a claim under `receipts/linkedin/`. After LinkedIn accepts the post, that receipt is updated to `published` with the returned post ID.
-
-If a request becomes ambiguous, it remains claimed or is marked `attention_required`. Automatic runs will then refuse to publish that request again. This deliberately prefers a missed post requiring review over an accidental duplicate.
-
-Outbox requests and delivery receipts remain in git history as a public audit trail.
-
-## Connection monitoring
-
-`.github/workflows/linkedin-health.yml` checks the protected `/linkedin/status` route every Monday and can also be run manually from GitHub Actions.
-
-This catches an expired/revoked LinkedIn token or author mismatch before the next publication attempt.
-
-## Direct HTTP example
-
-Set the deployed function URL and bridge key:
+The image file must remain local and **must not be committed**. Encryption embeds the image bytes in the sealed request. Supported image types are JPG, PNG and GIF, up to 12 MiB.
 
 ```bash
-export SOCIAL_BRIDGE_URL="https://europe-west1-<project-id>.cloudfunctions.net/socialBridge"
-export SOCIAL_BRIDGE_KEY="<your-bridge-key>"
+node scripts/seal-linkedin-outbox.mjs drafts/post.json outbox/linkedin/my-post.sealed.json
+git add outbox/linkedin/my-post.sealed.json
+git commit -m "Queue approved LinkedIn post"
+git push
 ```
 
-Check the public health endpoint:
+New sealed files on `main` trigger immediate publishing if due. Scheduled requests are scanned every 15 minutes; `publishAt` is a not-before time rather than a guarantee of exact delivery.
 
-```bash
-curl "$SOCIAL_BRIDGE_URL/health"
-```
+## Delivery safety
 
-Check the LinkedIn connection without publishing:
+Before publishing, the GitHub runner stores a durable claim under `receipts/linkedin/`. Successful publication updates it to `published`. Ambiguous failures remain claimed or become `attention_required`, so automated runs do not blindly retry and duplicate posts.
 
-```bash
-curl "$SOCIAL_BRIDGE_URL/linkedin/status" \
-  -H "Authorization: Bearer $SOCIAL_BRIDGE_KEY"
-```
+Receipt metadata contains no post text or credential. Previous unencrypted outbox entries have been removed from the current tree, but their public Git history still exists.
 
-Publish a text post:
+## Firebase API
+
+- `GET /health` — public liveness
+- `GET /linkedin/auth` — opens the admin sign-in form
+- `POST /linkedin/auth` — starts OAuth from that form with the separate admin key
+- `GET /linkedin/callback` — LinkedIn redirect, accepts a matching browser session once and renews the token server-side
+- `GET /linkedin/status` — requires bridge key; validates current connected author
+- `POST /linkedin/post` — requires bridge key; publishes text or one image
+
+Direct publishing:
 
 ```bash
 curl -X POST "$SOCIAL_BRIDGE_URL/linkedin/post" \
@@ -145,64 +86,22 @@ curl -X POST "$SOCIAL_BRIDGE_URL/linkedin/post" \
   -d '{"text":"Hello LinkedIn"}'
 ```
 
-## Firebase secrets
+For reauthorization, open `$SOCIAL_BRIDGE_URL/linkedin/auth` in a browser, enter the OAuth admin key and complete LinkedIn authorization in the same browser within ten minutes.
 
-Create these Firebase secrets before deploying:
-
-```bash
-firebase functions:secrets:set SOCIAL_BRIDGE_KEY
-firebase functions:secrets:set LINKEDIN_ACCESS_TOKEN
-firebase functions:secrets:set LINKEDIN_AUTHOR_URN
-firebase functions:secrets:set LINKEDIN_CLIENT_SECRET
-```
-
-`LINKEDIN_AUTHOR_URN` is the authenticated member URN used as the post author.
-
-## LinkedIn OAuth
-
-The V0 OAuth flow uses `openid profile w_member_social`.
-
-Open `/linkedin/auth`, authorize the LinkedIn account, and LinkedIn redirects to `/linkedin/callback`. The callback currently returns the access token and member URN so they can be stored manually in Firebase Secret Manager.
-
-Token persistence and renewal are intentionally still manual. LinkedIn programmatic refresh tokens are only available to approved Marketing Developer Platform partners, so refresh-token automation depends on the app's LinkedIn access. Once persistence is automated, the callback should stop returning the access token to the browser.
-
-## Deploy
-
-The Functions runtime is Node.js 22. Dependency resolution is pinned with `functions/package-lock.json`.
+## Deploy and tests
 
 ```bash
 cd functions
-npm install
+npm ci
+npm run check
 cd ..
+node --test scripts/linkedin-oauth.test.cjs scripts/linkedin-request.test.mjs scripts/sealed-outbox.test.mjs
+node scripts/validate-linkedin-outbox.mjs
 firebase deploy --only functions
 ```
 
+The Firebase project is configured in `.firebaserc` (`social-bridge-7d433`). Secret names already used by the function: `SOCIAL_BRIDGE_KEY`, `LINKEDIN_ACCESS_TOKEN`, `LINKEDIN_AUTHOR_URN`, `LINKEDIN_CLIENT_SECRET`, and `LINKEDIN_OAUTH_ADMIN_KEY`.
+
 ## Scope
 
-Social Bridge intentionally has no dashboard, analytics, or multi-user application layer. GitHub remains the queue, audit trail, scheduling surface, and delivery ledger for the current implementation.
-
-## Roadmap
-
-### Completed
-
-- [x] LinkedIn OAuth
-- [x] LinkedIn connection status check
-- [x] LinkedIn text publishing
-- [x] GitHub Actions agent relay
-- [x] First real LinkedIn post published end to end from ChatGPT after human approval
-- [x] Weekly LinkedIn connection health check
-- [x] Firebase Functions on Node.js 22 with reproducible dependency lock
-- [x] Durable delivery receipts / at-most-once automatic delivery
-- [x] Single-image publishing
-- [x] Scheduled publishing with ISO-8601 `publishAt`
-- [x] Strict outbox/media validation with shared CI-tested guardrails
-
-### Next
-
-- [ ] Validate image publishing end to end with a real approved image post
-- [ ] Multi-image publishing
-- [ ] Automate LinkedIn token persistence / renewal where LinkedIn app access allows it
-- [ ] Remove access token from OAuth callback response once persistence is automatic
-- [ ] Additional social networks
-
-The bridge should stay small. New capabilities belong here only when they are useful to agents and can be exposed through a simple, controlled interface.
+Social Bridge stays intentionally small: no dashboard or multi-user system. Additional networks and features should preserve the separation between public agent requests, private delivery keys, and platform credentials.
